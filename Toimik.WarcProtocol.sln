@@ -12,6 +12,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		.editorconfig = .editorconfig
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Toimik.WarcProtocol.Benchmarks", "tests\Toimik.WarcProtocol.Benchmarks\Toimik.WarcProtocol.Benchmarks.csproj", "{E5926C87-835C-4600-B04E-76E1D3E64B2A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,6 +28,10 @@ Global
 		{F06DA877-6D74-4AE9-A852-9F19A0A5A328}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F06DA877-6D74-4AE9-A852-9F19A0A5A328}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F06DA877-6D74-4AE9-A852-9F19A0A5A328}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5926C87-835C-4600-B04E-76E1D3E64B2A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5926C87-835C-4600-B04E-76E1D3E64B2A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5926C87-835C-4600-B04E-76E1D3E64B2A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5926C87-835C-4600-B04E-76E1D3E64B2A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
