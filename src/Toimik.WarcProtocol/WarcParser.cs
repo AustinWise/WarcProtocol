@@ -236,47 +236,6 @@ public sealed class WarcParser
         return field;
     }
 
-    private static async Task<byte[]> ParseContentBlock(LineReader lineReader, int contentLength)
-    {
-        /* Content block starts after the second pair of crlf, of which the first is read
-         * earlier. The block is as long as the value indicated by the Content-Length header and
-         * may consist of a payload.
-         */
-
-        var contentBlock = new byte[contentLength];
-        var readCount = 0;
-        var remainder = contentLength;
-
-        /* NOTE: Looping is required because Stream.ReadAsync(...) does not always return all
-         * the characters up to the buffer's length
-         */
-
-        bool hasReadAllData;
-        do
-        {
-            readCount = await lineReader.Stream.ReadAsync(contentBlock.AsMemory(readCount, remainder), lineReader.CancellationToken).ConfigureAwait(false);
-            var isEofEncountered = readCount == 0;
-            if (isEofEncountered)
-            {
-                break;
-            }
-
-            remainder -= readCount;
-            hasReadAllData = remainder == 0;
-        }
-        while (!hasReadAllData);
-
-        var hasMissingData = remainder > 0;
-        if (hasMissingData)
-        {
-            var line = Encoding.UTF8.GetString(contentBlock);
-            var text = $"Content block is {remainder} bytes shorter than expected length ({contentLength}): {line}";
-            throw new FormatException(text);
-        }
-
-        return contentBlock;
-    }
-
     private static string ProcessRecordDeclaration(string line)
     {
         /* NOTE: Record declaration is the first line of every record that must be formatted as
@@ -390,7 +349,7 @@ public sealed class WarcParser
             fieldToValue.Remove(Record.FieldForType);
             SetHeaderFields(record, fieldToValue);
             var contentLength = int.Parse(fieldToValue[Record.FieldForContentLength]);
-            var contentBlock = await ParseContentBlock(lineReader, contentLength).ConfigureAwait(false);
+            var contentBlock = await lineReader.ReadBytes(contentLength).ConfigureAwait(false);
             record.SetContentBlock(contentBlock);
         }
         catch (FormatException ex)

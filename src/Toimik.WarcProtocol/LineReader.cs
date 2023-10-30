@@ -17,99 +17,116 @@
 namespace Toimik.WarcProtocol;
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipelines;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-public class LineReader
+public class LineReader : IDisposable
 {
-    private static readonly IList<int> EolCharacters = new List<int>
-    {
-        WarcParser.CarriageReturn,
-        WarcParser.LineFeed,
-    };
-
     public LineReader(Stream stream, CancellationToken cancellationToken)
     {
         Stream = stream;
+        Reader = PipeReader.Create(stream);
         CancellationToken = cancellationToken;
     }
 
     public CancellationToken CancellationToken { get; }
 
-    public Stream Stream { get; }
+    private Stream Stream { get; }
+
+    private PipeReader Reader { get; }
+
+    public void Dispose()
+    {
+        Reader.Complete();
+    }
 
     public async Task Offset(long byteOffset)
     {
-        // NOTE: This is naively done because seek is unsupported by the underlying class
-        for (long i = 0; i < byteOffset; i++)
+        while (byteOffset > 0)
         {
-            var readCount = await Stream.ReadAsync(buffer: (new byte[1]).AsMemory(start: 0, length: 1)).ConfigureAwait(false);
-            var isEofEncountered = readCount == 0;
-            if (isEofEncountered)
+            var readResult = await Reader.ReadAsync(CancellationToken);
+
+            if (readResult.Buffer.Length == 0 && readResult.IsCompleted)
             {
                 throw new ArgumentException("Offset exceeds file size.", nameof(byteOffset));
             }
+
+            long amountToAdvance = Math.Min(byteOffset, readResult.Buffer.Length);
+            Reader.AdvanceTo(readResult.Buffer.GetPosition(amountToAdvance));
+            byteOffset -= amountToAdvance;
         }
+    }
+
+    public async Task<byte[]> ReadBytes(int bytesToRead)
+    {
+        var readResult = await Reader.ReadAtLeastAsync(bytesToRead);
+        if (readResult.Buffer.Length < bytesToRead)
+        {
+            throw new FormatException("End of file");
+        }
+
+        byte[] ret = readResult.Buffer.Slice(0, bytesToRead).ToArray();
+        Reader.AdvanceTo(readResult.Buffer.GetPosition(bytesToRead));
+        return ret;
+    }
+
+    private string? TryReadLine(ReadOnlySequence<byte> buffer, ref long lookedAt)
+    {
+        var seqReader = new SequenceReader<byte>(buffer);
+        seqReader.Advance(lookedAt);
+        while (seqReader.TryReadTo(out ReadOnlySpan<byte> data, WarcParser.LineFeed))
+        {
+            if (data.Length != 0 && data[data.Length - 1] == WarcParser.CarriageReturn)
+            {
+                var consumed = seqReader.Consumed;
+                seqReader.Rewind(2);
+                string ret = Encoding.UTF8.GetString(buffer.Slice(0, seqReader.Consumed));
+                Reader.AdvanceTo(buffer.GetPosition(consumed));
+                return ret;
+            }
+        }
+
+        lookedAt = seqReader.Consumed;
+
+        return null;
     }
 
     public async Task<string?> Read()
     {
         // NOTE: A line is terminated by consecutive occurrences of the EOL characters
-        var readBytes = new List<byte>();
-        do
+        long lookedAt = 0;
+        while (true)
         {
-            var buffer = new byte[1];
-            var readCount = await Stream.ReadAsync(buffer.AsMemory(start: 0, length: 1), CancellationToken).ConfigureAwait(false);
-            var isEofEncountered = readCount == 0;
-            if (isEofEncountered)
-            {
-                // Treat EOF as per normal only if it is empty. Otherwise, it is assumed that
-                // the EOL characters are found.
-                if (readBytes.Count == 0)
-                {
-                    readBytes = null;
-                }
+            var readResult = await Reader.ReadAsync(CancellationToken);
 
-                break;
+            // TODO: figure out if this is really the EOF case
+            if (readResult.IsCompleted)
+            {
+                if (readResult.Buffer.Length == 0)
+                {
+                    return null;
+                }
+                else
+                {
+                    string ret = Encoding.UTF8.GetString(readResult.Buffer);
+                    Reader.AdvanceTo(readResult.Buffer.End);
+                    return ret;
+                }
             }
 
-            var currentByte = buffer[0];
-            readBytes.Add(currentByte);
+            string? line = TryReadLine(readResult.Buffer, ref lookedAt);
 
-            var readByteCount = readBytes.Count;
-            var eolCharacterCount = EolCharacters.Count;
-            if (readByteCount >= eolCharacterCount)
+            if (line != null)
             {
-                // Check if the list of read bytes ends with the sequence of EOL characters
-                var isSequenceFound = true;
-                var offset = readByteCount - eolCharacterCount;
-                for (int i = 0, j = offset; i < eolCharacterCount; i++, j++)
-                {
-                    var eolCharacter = EolCharacters[i];
-                    var readByte = readBytes[j];
-                    if (eolCharacter != readByte)
-                    {
-                        isSequenceFound = false;
-                        break;
-                    }
-                }
-
-                if (isSequenceFound)
-                {
-                    // Remove the sequence
-                    readBytes.RemoveRange(offset, eolCharacterCount);
-                    break;
-                }
+                return line;
             }
+
+            Reader.AdvanceTo(readResult.Buffer.Start, readResult.Buffer.End);
         }
-        while (true);
-
-        var line = readBytes == null
-            ? null
-            : Encoding.UTF8.GetString(readBytes.ToArray());
-        return line;
     }
 }
