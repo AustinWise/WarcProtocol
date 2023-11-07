@@ -67,7 +67,9 @@ public class LineReader : IDisposable
         var readResult = await Reader.ReadAtLeastAsync(bytesToRead);
         if (readResult.Buffer.Length < bytesToRead)
         {
-            throw new FormatException("End of file");
+            long remainder = bytesToRead - readResult.Buffer.Length;
+            var text = $"Content block is {remainder} bytes shorter than expected length ({bytesToRead})";
+            throw new FormatException(text);
         }
 
         byte[] ret = readResult.Buffer.Slice(0, bytesToRead).ToArray();
